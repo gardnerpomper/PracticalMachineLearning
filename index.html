@@ -187,7 +187,10 @@ hljs.initHighlightingOnLoad();
 
 <p>Data was provided for the exercise from the following url: <a href="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv">https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv</a></p>
 
-<p>It consists of timestamped measurements from varying instruments, along with a user name and the type of exercise they were doing at the time. This will provide both the training and test data for this analysis.</p>
+<p>It consists of timestamped measurements from varying instruments,
+along with a user name and the type of exercise they were doing at the
+time. This will provide both the training and test data for this
+analysis.</p>
 
 <h2>Loading</h2>
 
@@ -208,20 +211,196 @@ hljs.initHighlightingOnLoad();
 ## Loading required package: parallel
 </code></pre>
 
-<pre><code class="r">registerDoMC(3) # allow 2 cores for processing
+<pre><code class="r">compare &lt;- function(pred, testing) {
+    quality &lt;- confusionMatrix(testing$classe,pred)
+    print(table(pred,testing$classe))
+    print(quality)
+}
+
+registerDoMC(3) # allow 2 cores for processing
 set.seed(12345)
 raw.df &lt;- read.csv(&quot;pml-training.csv&quot;,na.strings=c(&quot;NA&quot;,&quot;&quot;))
 </code></pre>
 
 <h2>Preprocessing</h2>
 
-<p>There are two types of events in the file. One is the raw collection of instrumentation readings. The other is the statistical information for a 1 second time period of the raw data. This statistical information is marked with a field named &ldquo;new_window&rdquo; and a value of &ldquo;yes&rdquo;. The analysis is done on only the raw data, since the statistical information (mean, max, etc) is of a different type that the bulk of the information. This code restricts to just the raw information:</p>
+<p>There are two types of events in the file. One is the raw collection
+of instrumentation readings. The other is the statistical information
+for a 1 second time period of the raw data. This statistical
+information is marked with a field named &ldquo;new_window&rdquo; and a value of
+&ldquo;yes&rdquo;. The analysis is done on only the raw data, since the
+statistical information (mean, max, etc) is of a different type that
+the bulk of the information. This code restricts to just the raw
+information:</p>
 
 <pre><code class="r">whole.window &lt;- raw.df$new_window != &quot;yes&quot;
 window.df &lt;- raw.df[whole.window,c(160,8:159)]
+##
+## make sure all the values are numeric, not factors
+##
 window.df[,-c(1)] &lt;- sapply(window.df[,-c(1)],function(x){ as.numeric(as.character(x))})
+##
+## figure out which columns have values in them and eliminate the rest
+##
 nsv &lt;- nearZeroVar(window.df,saveMetrics=TRUE)
 window.df &lt;- window.df[,nsv$nzv == FALSE]
+</code></pre>
+
+<h2>Splitting into training and testing datasets</h2>
+
+<p>In order to do cross validation, the data is split into 2 sets; one
+for training the model and one for testing the accuracy. Because there
+are many observations and the model chosen (random forest) is
+computationally expensive, the training set is restricted to 3000
+observations.</p>
+
+<pre><code class="r">inTrain &lt;- sample(nrow(window.df),3000)
+
+training.raw &lt;- window.df[inTrain,]
+testing.raw &lt;- window.df[-inTrain,]
+</code></pre>
+
+<h2>Imputing missing values</h2>
+
+<p>The observations have occasional missing values, which messed up the learning algorithsm. The missing values are imputed using the knn preprocess method:</p>
+
+<pre><code class="r">predictors &lt;- subset(training.raw,select=-c(classe))
+preObj &lt;- preProcess(predictors,method=&quot;knnImpute&quot;)
+training &lt;- predict(preObj,predictors)
+training$classe &lt;- training.raw$classe
+
+testing &lt;- predict(preObj,subset(testing.raw,select=-c(classe)))
+testing$classe &lt;- testing.raw$classe
+</code></pre>
+
+<h1>Modelling</h1>
+
+<p>Several modelling approaches were taken</p>
+
+<h2>Tree classifier</h2>
+
+<pre><code class="r">modFit &lt;- train(classe ~ ., method=&quot;rpart&quot;,data=training)
+</code></pre>
+
+<pre><code>## Loading required package: rpart
+</code></pre>
+
+<pre><code class="r">fancyRpartPlot(modFit$finalModel)
+</code></pre>
+
+<pre><code>## Error: could not find function &quot;fancyRpartPlot&quot;
+</code></pre>
+
+<pre><code class="r">pred &lt;- predict(modFit,testing)
+compare(pred,testing)
+</code></pre>
+
+<pre><code>##     
+## pred    A    B    C    D    E
+##    A 2839  517   76  134   41
+##    B  458 1802  520  866  925
+##    C  808  648 2227  722  481
+##    D  475  178   17  878  127
+##    E   60    0    0    0 1417
+## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction    A    B    C    D    E
+##          A 2839  458  808  475   60
+##          B  517 1802  648  178    0
+##          C   76  520 2227   17    0
+##          D  134  866  722  878    0
+##          E   41  925  481  127 1417
+## 
+## Overall Statistics
+##                                         
+##                Accuracy : 0.565         
+##                  95% CI : (0.557, 0.573)
+##     No Information Rate : 0.301         
+##     P-Value [Acc &gt; NIR] : &lt;2e-16        
+##                                         
+##                   Kappa : 0.453         
+##  Mcnemar&#39;s Test P-Value : &lt;2e-16        
+## 
+## Statistics by Class:
+## 
+##                      Class: A Class: B Class: C Class: D Class: E
+## Sensitivity             0.787    0.394    0.456   0.5242   0.9594
+## Specificity             0.857    0.885    0.946   0.8816   0.8932
+## Pos Pred Value          0.612    0.573    0.784   0.3377   0.4738
+## Neg Pred Value          0.934    0.788    0.801   0.9415   0.9955
+## Prevalence              0.222    0.282    0.301   0.1033   0.0911
+## Detection Rate          0.175    0.111    0.137   0.0541   0.0874
+## Detection Prevalence    0.286    0.194    0.175   0.1603   0.1844
+## Balanced Accuracy       0.822    0.639    0.701   0.7029   0.9263
+</code></pre>
+
+<h2>Linear Discriminate Analysis</h2>
+
+<pre><code class="r">modFit &lt;- train(classe ~ ., data=training,method=&quot;lda&quot;)
+</code></pre>
+
+<pre><code>## Loading required package: MASS
+</code></pre>
+
+<pre><code class="r">pred &lt;- predict(modFit,testing)
+compare(pred,testing)
+</code></pre>
+
+<pre><code>##     
+## pred    A    B    C    D    E
+##    A 3798  495  346  167  115
+##    B  107 1876  231   81  481
+##    C  327  397 1790  254  291
+##    D  382  171  407 1984  299
+##    E   26  206   66  114 1805
+## Confusion Matrix and Statistics
+## 
+##           Reference
+## Prediction    A    B    C    D    E
+##          A 3798  107  327  382   26
+##          B  495 1876  397  171  206
+##          C  346  231 1790  407   66
+##          D  167   81  254 1984  114
+##          E  115  481  291  299 1805
+## 
+## Overall Statistics
+##                                         
+##                Accuracy : 0.694         
+##                  95% CI : (0.687, 0.701)
+##     No Information Rate : 0.303         
+##     P-Value [Acc &gt; NIR] : &lt;2e-16        
+##                                         
+##                   Kappa : 0.612         
+##  Mcnemar&#39;s Test P-Value : &lt;2e-16        
+## 
+## Statistics by Class:
+## 
+##                      Class: A Class: B Class: C Class: D Class: E
+## Sensitivity             0.772    0.676    0.585    0.612    0.814
+## Specificity             0.925    0.906    0.920    0.953    0.915
+## Pos Pred Value          0.819    0.597    0.630    0.763    0.603
+## Neg Pred Value          0.903    0.931    0.905    0.908    0.969
+## Prevalence              0.303    0.171    0.189    0.200    0.137
+## Detection Rate          0.234    0.116    0.110    0.122    0.111
+## Detection Prevalence    0.286    0.194    0.175    0.160    0.184
+## Balanced Accuracy       0.849    0.791    0.753    0.782    0.865
+</code></pre>
+
+<h2>Boosting</h2>
+
+<pre><code class="r">##modFit &lt;- train(classe ~ ., method=&quot;gbm&quot;,data=training,verbose=FALSE)
+##pred &lt;- predict(modFit,testing)
+##compare(pred,testing)
+</code></pre>
+
+<h2>Random Forest</h2>
+
+<pre><code class="r">##modFit &lt;- train(classe ~ ., data=training, method=&quot;rf&quot;,prox=TRUE)
+##tree2 &lt;- getTree(modFit$finalModel,k=2)
+##fancyRpartPlot(tree2)
+##pred &lt;- predict(modFit,testing)
+##compare(pred,testing)
 </code></pre>
 
 </body>
