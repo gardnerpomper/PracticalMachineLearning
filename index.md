@@ -34,7 +34,7 @@ mode        : selfcontained # {standalone, draft}
 plot(1 : 10, 1 : 10)
 ```
 
-![plot of chunk unnamed-chunk-1](figure/unnamed-chunk-1.png) 
+![plot of chunk unnamed-chunk-1](assets/fig/unnamed-chunk-1.png) 
 
 ---
 
