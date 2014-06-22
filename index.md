@@ -1,6 +1,6 @@
 ---
-title       : Study notebook
-subtitle    : A Project for Coursera's Developing Data Products class
+title       : Practical Machine Learning Final Project
+subtitle    : writeup for class
 author      : Gardner Pomper
 job         : 
 framework   : io2012        # {io2012, html5slides, shower, dzslides, ...}
